@@ -144,9 +144,19 @@ function buildMirrorRelativePath(rawUrl: string, contentType = ""): string {
   const ext = extname(filename) || extFromContentType(contentType);
   if (!extname(filename)) filename += ext;
   if (url.search) {
+    const CACHE_BUST = new Set(["_t", "_", "r", "ts", "timestamp", "cb", "callback"]);
+    const params = new URLSearchParams(url.search);
+    for (const key of [...params.keys()]) {
+      if (CACHE_BUST.has(key)) params.delete(key);
+    }
+    const stable = new URLSearchParams();
+    for (const key of [...params.keys()].sort()) {
+      for (const v of params.getAll(key)) stable.append(key, v);
+    }
+    const normQuery = stable.toString();
     const currentExt = extname(filename);
     const base = currentExt ? filename.slice(0, -currentExt.length) : filename;
-    filename = `${base}__${sha(url.search)}${currentExt || ext}`;
+    filename = `${base}__${sha(normQuery)}${currentExt || ext}`;
   }
   return join("assets", "mirror", protocol, url.host, ...segments, filename);
 }
@@ -185,7 +195,7 @@ function createHandler(siteRoot: string, offline = false) {
   const siteMeta = existsSync(siteMetaPath)
     ? (JSON.parse(readFileSync(siteMetaPath, "utf-8")) as SiteMeta)
     : null;
-  const sourceOrigin = !offline && siteMeta?.sourceUrl ? new URL(siteMeta.sourceUrl).origin : null;
+  const sourceOrigin = siteMeta?.sourceUrl ? new URL(siteMeta.sourceUrl).origin : null;
 
   return (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
     const method = req.method?.toUpperCase() ?? "GET";
@@ -206,7 +216,7 @@ function createHandler(siteRoot: string, offline = false) {
         res.writeHead(404).end();
         return;
       }
-      return serveLocal(res, siteRoot, normalized, method);
+      return serveLocal(res, siteRoot, normalized, method, sourceOrigin, rawQuery);
     }
 
     if (normalized.startsWith("/__origin__/")) {
@@ -317,6 +327,8 @@ function serveLocal(
   siteRoot: string,
   normalized: string,
   method: string,
+  sourceOrigin: string | null,
+  rawQuery: string,
 ): void {
   let path = normalized;
   if (path === "/" || path === "" || path === ".") {
@@ -331,30 +343,40 @@ function serveLocal(
   }
 
   const filePath = join(siteRoot, path);
-  if (!existsSync(filePath)) {
-    res.writeHead(404).end();
-    return;
-  }
-
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(filePath);
-  } catch {
-    res.writeHead(404).end();
-    return;
-  }
-
-  if (stat.isDirectory()) {
-    const indexPath = join(filePath, "index.html");
-    if (existsSync(indexPath)) {
-      serveFile(res, indexPath, method);
-    } else {
+  if (existsSync(filePath)) {
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(filePath);
+    } catch {
       res.writeHead(404).end();
+      return;
     }
+    if (stat.isDirectory()) {
+      const indexPath = join(filePath, "index.html");
+      if (existsSync(indexPath)) {
+        serveFile(res, indexPath, method);
+      } else {
+        res.writeHead(404).end();
+      }
+      return;
+    }
+    serveFile(res, filePath, method);
     return;
   }
 
-  serveFile(res, filePath, method);
+  // Not found at direct path → try mirror (for captured API responses like head.do)
+  if (sourceOrigin) {
+    const mirrorCandidate = join(
+      siteRoot,
+      buildMirrorRelativePath(`${sourceOrigin}${path}${rawQuery ? `?${rawQuery}` : ""}`),
+    );
+    if (existsSync(mirrorCandidate)) {
+      serveFile(res, mirrorCandidate, method);
+      return;
+    }
+  }
+
+  res.writeHead(404).end();
 }
 
 function serveFile(

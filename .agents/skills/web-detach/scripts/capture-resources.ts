@@ -69,7 +69,18 @@ async function main(): Promise<void> {
         if (parsed.search) {
           const nameExt = extname(filename);
           const base = nameExt ? filename.slice(0, -nameExt.length) : filename;
-          const hash = createHash("sha1").update(parsed.search).digest("hex").slice(0, 10);
+          // Strip cache-busting params for stable hashing across capture runs
+          const CACHE_BUST = new Set(["_t", "_", "r", "ts", "timestamp", "cb", "callback"]);
+          const params = new URLSearchParams(parsed.search);
+          for (const key of [...params.keys()]) {
+            if (CACHE_BUST.has(key)) params.delete(key);
+          }
+          const stable = new URLSearchParams();
+          for (const key of [...params.keys()].sort()) {
+            for (const v of params.getAll(key)) stable.append(key, v);
+          }
+          const normQuery = stable.toString();
+          const hash = createHash("sha1").update(normQuery).digest("hex").slice(0, 10);
           filename = base + "__" + hash + (nameExt || "");
         }
         const relPath = posix.join("assets", "mirror", protocol, parsed.host, ...segments, filename);

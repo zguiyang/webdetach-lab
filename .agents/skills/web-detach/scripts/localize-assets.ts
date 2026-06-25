@@ -662,21 +662,6 @@ async function main(): Promise<void> {
     rewrittenHtml = rewrittenHtml.replace(/<base\s+[^>]*>/gi, '<base href="/">');
   }
 
-  // Offline mode: remove inline runtime hijacking script that intercepts XHR/fetch.
-  // This script rewrites hostnames to local origin (e.g. /__origin__/) which doesn't
-  // exist in offline mode — it would break fetch/XHR calls instead of going to CDN origin.
-  if (isOffline) {
-    rewrittenHtml = rewrittenHtml.replace(
-      /<script>([\s\S]*?)<\/script>/gi,
-      (match: string, content: string) => {
-        if (content.includes("XMLHttpRequest.prototype.open") && content.includes("window.fetch")) {
-          return "";
-        }
-        return match;
-      },
-    );
-  }
-
   // Offline mode: remove crossorigin attributes from <script>/<link> tags.
   // crossorigin is needed for cross-origin CDN requests, but in offline mode all
   // resources are local. On file:// protocol, crossorigin blocks script loading
