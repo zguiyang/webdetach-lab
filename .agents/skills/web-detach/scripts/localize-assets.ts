@@ -108,6 +108,12 @@ function resolveToLocalPath(siteRoot: string, url: string): string | null {
   // Build the same path as capture-resources.js uses:
   // assets/mirror/<protocol>/<host>/<path>
   try {
+    // Defensive: handle protocol-relative URLs (//host/path) by prepending https:
+    // Normally the caller already resolves with resolveUrl() which produces absolute URLs,
+    // but this ensures edge cases don't crash new URL().
+    if (url.startsWith("//")) {
+      url = "https:" + url;
+    }
     const parsed = new URL(url);
     const protocol = parsed.protocol.replace(":", "");
     const segments = parsed.pathname.split("/").filter(Boolean);
@@ -550,12 +556,29 @@ async function main(): Promise<void> {
       rewrittenHtml.slice(patch.offset + patch.length);
   }
 
-  if (!isOffline) {
+  // Normalize <base> tag: offline → delete (so ./assets/mirror/... resolves against document URL)
+  // online → set to server root
+  if (isOffline) {
+    rewrittenHtml = rewrittenHtml.replace(/<base\s+[^>]*>/gi, "");
+  } else {
+    rewrittenHtml = rewrittenHtml.replace(/<base\s+[^>]*>/gi, '<base href="/">');
+  }
+
+  // Offline mode: remove inline runtime hijacking script that intercepts XHR/fetch.
+  // This script rewrites hostnames to local origin (e.g. /__origin__/) which doesn't
+  // exist in offline mode — it would break fetch/XHR calls instead of going to CDN origin.
+  if (isOffline) {
     rewrittenHtml = rewrittenHtml.replace(
-      /<base\s+href="\/\/www\.made-in-china\.com"\s+target="_top">/i,
-      '<base href="/" target="_self">',
+      /<script>([\s\S]*?)<\/script>/gi,
+      (match: string, content: string) => {
+        if (content.includes("XMLHttpRequest.prototype.open") && content.includes("window.fetch")) {
+          return "";
+        }
+        return match;
+      },
     );
   }
+
   writeFileSync(htmlPath, rewrittenHtml, "utf-8");
 
   if (!isOffline) {
