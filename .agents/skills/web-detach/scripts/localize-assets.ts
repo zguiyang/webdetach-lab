@@ -579,6 +579,21 @@ async function main(): Promise<void> {
     );
   }
 
+  // Offline mode: remove crossorigin attributes from <script>/<link> tags.
+  // crossorigin is needed for cross-origin CDN requests, but in offline mode all
+  // resources are local. On file:// protocol, crossorigin blocks script loading
+  // because file:// doesn't support CORS headers.
+  if (isOffline) {
+    rewrittenHtml = rewrittenHtml.replace(
+      /(<script[^>]*)\s+crossorigin="[^"]*"/gi,
+      "$1",
+    );
+    rewrittenHtml = rewrittenHtml.replace(
+      /(<link[^>]*)\s+crossorigin="[^"]*"/gi,
+      "$1",
+    );
+  }
+
   writeFileSync(htmlPath, rewrittenHtml, "utf-8");
 
   if (!isOffline) {
