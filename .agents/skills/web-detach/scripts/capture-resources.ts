@@ -95,6 +95,17 @@ async function main(): Promise<void> {
 
   await browser.close();
 
+  // Write URL→localPath manifest for the localize phase
+  const manifest = captured.map((r) => ({
+    url: r.url,
+    localPath: "assets/" + r.path,
+    contentType: r.contentType,
+  }));
+  const manifestPath = join(outputDir, "assets", "mirror", "manifest.json");
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify({ version: 1, entries: manifest }, null, 2) + "\n", "utf-8");
+  console.error(`[capture-resources] Manifest written: ${manifest.length} entries`);
+
   const total = captured.length;
   const totalBytes = captured.reduce((s, r) => s + r.size, 0);
   console.log(JSON.stringify({ total, totalBytes, errors: errors.length > 0 ? errors : undefined }));

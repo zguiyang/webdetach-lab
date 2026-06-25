@@ -416,80 +416,95 @@ async function mirrorRuntimeResponse(siteRoot: string, url: string): Promise<Run
   };
 }
 
-async function rewriteMirrorCssUrls(siteRoot: string): Promise<void> {
-  const mirrorDir = join(siteRoot, "assets", "mirror");
-  if (!existsSync(mirrorDir)) return;
+async function rewriteMirrorTextFiles(siteRoot: string, htmlPath: string): Promise<void> {
+  const manifestPath = join(siteRoot, "assets", "mirror", "manifest.json");
+  if (!existsSync(manifestPath)) {
+    console.log("  No manifest.json found, skipping text file rewrite");
+    return;
+  }
 
-  const cssFiles: string[] = [];
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+    version: number;
+    entries: { url: string; localPath: string; contentType: string }[];
+  };
+
+  if (!manifest.entries || manifest.entries.length === 0) {
+    console.log("  Empty manifest, skipping text file rewrite");
+    return;
+  }
+
+  // Sort by URL length descending: longest matches first to avoid substring errors
+  // e.g. "https://cdn.com/a/long/path.js" before "https://cdn.com/a.js"
+  const sorted = manifest.entries
+    .map((e) => ({ from: e.url, to: "./" + e.localPath }))
+    .sort((a, b) => b.from.length - a.from.length);
+
+  // Collect all text-based files in mirror (JS, CSS, HTML, JSON, SVG, XML)
+  // Skip: manifest.json (would be corrupted), capture/ (source/rendered originals)
+  const textFiles: string[] = [];
+  const mirrorDir = join(siteRoot, "assets", "mirror");
   function walk(dir: string): void {
+    if (!existsSync(dir)) return;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith(".css")) cssFiles.push(full);
+      else if (/\.(js|css|html?|json|svg|xml)$/i.test(entry.name) && entry.name !== "manifest.json") {
+        textFiles.push(full);
+      }
     }
   }
   walk(mirrorDir);
 
-  if (cssFiles.length === 0) {
-    console.log("  No CSS files to rewrite in mirror");
-    return;
-  }
+  // Also rewrite index.html (skip capture/ files and manifest.json itself)
+  if (existsSync(htmlPath)) textFiles.push(htmlPath);
 
-  const urlPattern = /url\((['"]?)([^)'"]+)\1\)/g;
+  // Regex to detect navigational href in HTML (skip these)
+  const navAttrRe = /(<a\s[^>]*?href\s*=\s*["']|(<form\s[^>]*?action\s*=\s*["']))/gi;
+
   let totalRewrites = 0;
+  let fileCount = 0;
 
-  for (const cssPath of cssFiles) {
-    // Derive the CSS file's origin URL from its mirror path:
-    // assets/mirror/<protocol>/<host>/<rest...>
-    const relPath = relative(siteRoot, cssPath); // assets/mirror/https/host/path/file.css
-    const segments = relPath.split("/"); // ["assets","mirror","https","host",...]
-    if (segments.length < 4 || segments[0] !== "assets" || segments[1] !== "mirror") continue;
-    const protocol = segments[2]; // "https"
-    const host = segments[3];
-    const defaultOrigin = `${protocol}://${host}/`;
+  for (const filePath of textFiles) {
+    const isHtml = filePath.endsWith(".html");
+    let content = readFileSync(filePath, "utf-8");
+    let changed = false;
+    fileCount++;
 
-    const css = readFileSync(cssPath, "utf-8");
-    let rewritten = css;
-    const replacements = new Map<string, string>();
-
-    for (const match of css.matchAll(urlPattern)) {
-      const raw = match[2];
-      if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) continue;
-
-      let resolved: string | null = null;
-      try {
-        if (raw.startsWith("//")) {
-          resolved = `https:${raw}`;
-        } else if (raw.startsWith("http://") || raw.startsWith("https://")) {
-          resolved = raw;
-        } else if (raw.startsWith("/")) {
-          resolved = `${protocol}://${host}${raw}`;
-        } else {
-          resolved = new URL(raw, defaultOrigin).toString();
+    // For HTML files, build a set of navigational URL values to protect
+    const protectedUrls = new Set<string>();
+    if (isHtml) {
+      for (const match of content.matchAll(navAttrRe)) {
+        const prefix = match[0];
+        const quote = prefix.endsWith('"') ? '"' : "'";
+        const startIdx = match.index! + match[0].length;
+        const endIdx = content.indexOf(quote, startIdx);
+        if (endIdx !== -1) {
+          protectedUrls.add(content.slice(startIdx, endIdx));
         }
-      } catch {
-        continue;
-      }
-
-      if (!resolved) continue;
-      const localPath = resolveToLocalPath(siteRoot, resolved);
-      if (localPath) {
-        // The resolved URL has a mirror copy → replace with relative path
-        replacements.set(raw, localPath);
       }
     }
 
-    if (replacements.size > 0) {
-      for (const [from, to] of replacements) {
-        rewritten = rewritten.split(from).join(to);
+    for (const { from, to } of sorted) {
+      // Skip entries that are protected (nav links in HTML)
+      if (protectedUrls.has(from)) continue;
+
+      const newContent = content.split(from).join(to);
+      if (newContent !== content) {
+        content = newContent;
+        changed = true;
       }
-      writeFileSync(cssPath, rewritten, "utf-8");
-      totalRewrites += replacements.size;
-      console.log(`  CSS: ${relative(siteRoot, cssPath)} → ${replacements.size} URL(s) rewritten`);
+    }
+
+    if (changed) {
+      writeFileSync(filePath, content, "utf-8");
+      fileCount++;
+      const displayPath = relative(siteRoot, filePath);
+      console.log(`  Rewrote: ${displayPath}`);
     }
   }
 
-  console.log(`  Total CSS URL rewrites: ${totalRewrites}`);
+  totalRewrites = sorted.length;
+  console.log(`  Text file rewrite: ${fileCount} files scanned, ${sorted.length} URL patterns applied`);
 }
 
 async function main(): Promise<void> {
@@ -674,11 +689,10 @@ async function main(): Promise<void> {
 
   writeFileSync(htmlPath, rewrittenHtml, "utf-8");
 
-  // Offline mode: rewrite CSS url() references from CDN URLs to local mirror paths.
-  // CSS files captured by CDP still contain @font-face url(https://cdn/...font.woff2)
-  // and background-image url(//cdn/...img.png) pointing to CDN hosts.
+  // Offline mode: use manifest.json to rewrite all text files in mirror.
+  // Replaces any occurrence of a captured CDN URL with its local path.
   if (isOffline) {
-    await rewriteMirrorCssUrls(siteRoot);
+    await rewriteMirrorTextFiles(siteRoot, htmlPath);
   }
 
   if (!isOffline) {
