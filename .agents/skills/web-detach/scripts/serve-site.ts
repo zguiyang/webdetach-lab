@@ -1,4 +1,5 @@
-import { createServer } from "node:http";
+import { createServer, request as httpReq } from "node:http";
+import { request as httpsReq } from "node:https";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync, existsSync } from "node:fs";
 import { join, normalize, extname } from "node:path";
@@ -267,6 +268,16 @@ function createHandler(siteRoot: string) {
           serveFile(res, mirrorCandidate, method);
           return;
         }
+
+        // Check for pre-saved API response
+        const savedResponse = findSavedResponse(siteRoot, normalized, rawQuery);
+        if (savedResponse) {
+          serveFile(res, savedResponse, method);
+          return;
+        }
+
+        proxyToOrigin(res, `${sourceOrigin}${normalized}${rawQuery ? `?${rawQuery}` : ""}`, req.headers);
+        return;
       }
 
       res.writeHead(404).end();
@@ -319,6 +330,50 @@ function serveFile(
   } catch {
     res.writeHead(500).end();
   }
+}
+
+function findSavedResponse(siteRoot: string, path: string, query: string): string | null {
+  const base = path.replace(/^\//, "").split("?")[0];
+  if (!base) return null;
+  const params = new URLSearchParams(query);
+  const xcase = params.get("xcase");
+  if (!xcase) return null;
+  const candidate = join(siteRoot, "data", "responses", `${base}--${xcase}.json`);
+  return existsSync(candidate) ? candidate : null;
+}
+
+function proxyToOrigin(
+  res: import("node:http").ServerResponse,
+  urlStr: string,
+  reqHeaders: import("node:http").IncomingHttpHeaders,
+) {
+  console.log(`[proxy] ${urlStr}`);
+  const url = new URL(urlStr);
+  const forwardHeaders: Record<string, string> = {};
+
+  for (const key of ["user-agent", "accept", "accept-language", "cookie"]) {
+    const v = reqHeaders[key];
+    if (v) forwardHeaders[key] = Array.isArray(v) ? v[0] : v;
+  }
+  if (!forwardHeaders["user-agent"]) {
+    forwardHeaders["user-agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+  }
+
+  const req = (url.protocol === "https:" ? httpsReq : httpReq)(url, { headers: forwardHeaders }, (proxyRes) => {
+    const headers: Record<string, string | string[] | undefined> = {};
+    for (const [key, value] of Object.entries(proxyRes.headers)) {
+      const lk = key.toLowerCase();
+      if (!["content-encoding", "content-length", "transfer-encoding", "connection",
+            "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
+            "trailers", "upgrade", "set-cookie"].includes(lk)) {
+        headers[key] = value;
+      }
+    }
+    res.writeHead(proxyRes.statusCode ?? 502, headers);
+    proxyRes.pipe(res);
+  });
+  req.on("error", () => { res.writeHead(504).end(); });
+  req.end();
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
