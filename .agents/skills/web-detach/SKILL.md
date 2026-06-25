@@ -8,10 +8,11 @@
 
 ## 浏览器工具
 
-- **唯一工具**：`playwright-cli`
+- **唯一工具**：`playwright-cli`（项目依赖 `@playwright/cli`，通过 `pnpm install` 安装）
 - **默认模式**：自动启动本地 headed Chrome + 专用持久化 Profile
 - **Session**：固定使用 `webdetach`
 - **Profile**：`.webdetach/browser-profile`（项目专用，不提交 Git）
+- **启动命令**：`./node_modules/.bin/playwright-cli` 或 `pnpm exec playwright-cli`
 - **禁止**：agent-browser、无头浏览器、其他浏览器工具
 
 ---
@@ -21,21 +22,31 @@
 默认命令：
 
 ```bash
-playwright-cli -s=webdetach open "<TARGET_URL>" \
+pnpm exec playwright-cli -s=webdetach open "<TARGET_URL>" \
   --browser=chrome \
   --headed \
   --persistent \
   --profile=.webdetach/browser-profile
 ```
 
-执行前 MUST 通过 `playwright-cli open --help` 确认当前版本参数格式。
+或者（等效）：
+
+```bash
+./node_modules/.bin/playwright-cli -s=webdetach open "<TARGET_URL>" \
+  --browser=chrome \
+  --headed \
+  --persistent \
+  --profile=.webdetach/browser-profile
+```
+
+执行前 MUST 通过 `pnpm exec playwright-cli open --help` 确认当前版本参数格式。
 
 ## Remote Debugging（可选模式）
 
 仅当用户明确要求复用时：
 
 ```bash
-playwright-cli attach --cdp=chrome -s=webdetach
+pnpm exec playwright-cli attach --cdp=chrome -s=webdetach
 ```
 
 此时用户需要在 Chrome 中开启 Remote Debugging。默认流程不使用此模式。
@@ -111,9 +122,9 @@ CSS、字体、JS 和接口响应留在后续阶段处理。
 
 - Node.js 22 或 24
 - pnpm
-- 项目依赖已安装（typescript、tsx、@types/node）
-- playwright-cli
-- Google Chrome
+- 项目依赖已安装（typescript、tsx、@types/node、parse5、@playwright/cli）
+- playwright-cli（通过 `@playwright/cli` 安装）
+- Google Chrome（本地安装）
 
 ## 阻止条件
 
@@ -127,6 +138,22 @@ CSS、字体、JS 和接口响应留在后续阶段处理。
 - `sites/` 不可写
 - 本地 HTTP Server 无法启动
 - 页面状态为 `ACCESS_BLOCKED`
+
+## 新手快速开始
+
+```bash
+# 1. 克隆项目
+git clone <repo>
+
+# 2. 安装所有依赖（含 playwright-cli）
+pnpm install
+
+# 3. 运行环境检查
+pnpm setup
+
+# 4. 捕获网页
+pnpm site:capture -- <target-url>
+```
 
 ## Profile 规则
 

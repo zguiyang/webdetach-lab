@@ -2,12 +2,12 @@
 
 ## Browser automation
 
-唯一使用 `playwright-cli`。
+唯一使用 `playwright-cli`（项目依赖 `@playwright/cli`）。
 
 ## Default launch mode
 
 ```bash
-playwright-cli -s=webdetach open "<URL>" \
+pnpm exec playwright-cli -s=webdetach open "<URL>" \
   --browser=chrome \
   --headed \
   --persistent \
@@ -16,14 +16,14 @@ playwright-cli -s=webdetach open "<URL>" \
 
 自动启动本地 headed Chrome，使用项目专用持久化 Profile。
 
-启动前 MUST 执行 `playwright-cli open --help` 确认参数格式。
+启动前 MUST 执行 `pnpm exec playwright-cli open --help` 确认参数格式。
 
 ## Optional: attach mode
 
 仅用户明确要求复用时使用：
 
 ```bash
-playwright-cli attach --cdp=chrome -s=webdetach
+pnpm exec playwright-cli attach --cdp=chrome -s=webdetach
 ```
 
 需要用户手动开启 Chrome Remote Debugging。默认流程不使用。
@@ -44,4 +44,10 @@ TypeScript 脚本通过项目本地 `tsx` 执行。
 
 ```bash
 pnpm site:serve -- <site-name>
+```
+
+## Setup check
+
+```bash
+pnpm setup
 ```

@@ -122,11 +122,18 @@ function tryParseJsonOutput(s: string): string {
 }
 
 function isToolAvailable(tool: string): boolean {
+  // Check PATH first, then local node_modules/.bin
   try {
     execSync(`command -v ${tool}`, { encoding: "utf-8", timeout: 5000 });
     return true;
   } catch {
-    return false;
+    // Also check project-local binary
+    try {
+      execSync(`test -x node_modules/.bin/${tool}`, { encoding: "utf-8", timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -168,8 +175,8 @@ function downloadUrl(urlStr: string): string | null {
 }
 
 function tryDetectTool(): string | null {
-  if (isToolAvailable("agent-browser")) return "agent-browser";
   if (isToolAvailable("playwright-cli")) return "playwright-cli";
+  if (isToolAvailable("agent-browser")) return "agent-browser";
   return null;
 }
 
@@ -197,41 +204,54 @@ function fetchSourceHtml(url: string): string | null {
   }
 }
 
+function playwrightBin(): string {
+  // Prefer project-local binary, fallback to global
+  if (isToolAvailable("playwright-cli")) {
+    try {
+      execSync("command -v playwright-cli", { encoding: "utf-8", timeout: 3000 });
+      return "playwright-cli";
+    } catch {
+      return "./node_modules/.bin/playwright-cli";
+    }
+  }
+  return "playwright-cli";
+}
+
 function browserOpenCmd(tool: string, url: string): string {
   if (tool === "agent-browser") return `agent-browser open --headed "${url}"`;
-  return `playwright-cli -s=webdetach open "${url}" --headed --persistent --profile=.webdetach/browser-profile`;
+  return `${playwrightBin()} -s=webdetach open "${url}" --headed --persistent --profile=.webdetach/browser-profile`;
 }
 
 function browserEvalCmd(tool: string, js: string): string {
   const escaped = js.replace(/"/g, '\\"');
   if (tool === "agent-browser") return `agent-browser eval "${escaped}"`;
-  return `playwright-cli -s=webdetach eval "${escaped}"`;
+  return `${playwrightBin()} -s=webdetach eval "${escaped}"`;
 }
 
 function browserScreenshotCmd(tool: string, path: string, fullPage = false): string {
   const fp = fullPage ? " --full" : "";
   if (tool === "agent-browser") return `agent-browser screenshot${fp} "${path}"`;
-  return `playwright-cli -s=webdetach screenshot${fp} --filename "${path}"`;
+  return `${playwrightBin()} -s=webdetach screenshot${fp} --filename "${path}"`;
 }
 
 function browserCloseCmd(tool: string): string {
   if (tool === "agent-browser") return "agent-browser close";
-  return "playwright-cli -s=webdetach close";
+  return `${playwrightBin()} -s=webdetach close`;
 }
 
 function browserRequestsCmd(tool: string): string {
   if (tool === "agent-browser") return "agent-browser --json network requests";
-  return `playwright-cli -s=webdetach requests --json`;
+  return `${playwrightBin()} -s=webdetach requests --json`;
 }
 
 function browserConsoleCmd(tool: string): string {
   if (tool === "agent-browser") return "agent-browser --json console";
-  return `playwright-cli -s=webdetach console --json`;
+  return `${playwrightBin()} -s=webdetach console --json`;
 }
 
 function browserScrollCmd(tool: string, px: number): string {
   if (tool === "agent-browser") return `agent-browser scroll down ${px}`;
-  return `playwright-cli -s=webdetach scroll ${px}`;
+  return `${playwrightBin()} -s=webdetach scroll ${px}`;
 }
 
 function runBrowserCommands(tool: string, url: string, siteRoot: string): {
@@ -271,7 +291,7 @@ function runBrowserCommands(tool: string, url: string, siteRoot: string): {
   execTool(chain, "open");
 
   const title = execTool(
-    tool === "agent-browser" ? `agent-browser get title` : `playwright-cli -s=webdetach eval "document.title"`,
+    tool === "agent-browser" ? `agent-browser get title` : `${playwrightBin()} -s=webdetach eval "document.title"`,
     "title",
   ).stdout;
   console.log(`[capture] Page title: ${title}`);
@@ -466,7 +486,7 @@ async function main(): Promise<void> {
 
   const tool = tryDetectTool();
   if (!tool) {
-    console.error("No browser tool found. Install agent-browser or playwright-cli.");
+    console.error("No browser tool found. Run pnpm install (includes @playwright/cli) or check node_modules/.bin/playwright-cli.");
     process.exitCode = 1;
     return;
   }

@@ -3,8 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "setup": "tsx .agents/skills/web-detach/scripts/setup.ts",
     "site:capture": "tsx .agents/skills/web-detach/scripts/capture-site.ts",
     "site:serve": "tsx .agents/skills/web-detach/scripts/serve-site.ts",
     "site:localize-assets": "tsx .agents/skills/web-detach/scripts/localize-assets.ts",
@@ -12,6 +17,7 @@
     "site:audit-capture": "tsx .agents/skills/web-detach/scripts/audit-capture.ts"
   },
   "devDependencies": {
+    "@playwright/cli": "0.1.14",
     "@types/node": "latest",
     "tsx": "latest",
     "typescript": "latest"

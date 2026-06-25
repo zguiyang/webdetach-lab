@@ -8,7 +8,7 @@
 
 ## 浏览器工具
 
-唯一使用 `playwright-cli`。默认通过 `playwright-cli -s=webdetach open` 启动本地 headed Chrome，使用专用持久化 Profile `.webdetach/browser-profile`。固定 Session `webdetach`。禁止使用 agent-browser、无头浏览器或其他浏览器工具。
+唯一使用 `playwright-cli`（项目依赖 `@playwright/cli`）。默认通过 `./node_modules/.bin/playwright-cli -s=webdetach open` 启动本地 headed Chrome，使用专用持久化 Profile `.webdetach/browser-profile`。固定 Session `webdetach`。禁止使用 agent-browser、无头浏览器或其他浏览器工具。
 
 ## Profile
 
