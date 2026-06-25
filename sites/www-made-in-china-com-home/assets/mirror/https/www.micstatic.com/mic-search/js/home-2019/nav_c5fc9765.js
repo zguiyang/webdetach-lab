@@ -1,0 +1,2 @@
+var sideBarInstance=null;void function(){window.SideBar&&(sideBarInstance=window.SideBar({navList:["RFQ","SERVICE","APP","TOP"],feedBackKey:"c1b4f833-eae9-49f8-9109-aa067e0e71f6",lang:"en",keyword:document.querySelector("#search-word-for-rfq")?document.querySelector("#search-word-for-rfq").value:"",userType:document.querySelector(".J-top-userType")?document.querySelector(".J-top-userType").value:""}))}.call(this);
+//# sourceMappingURL=../../../__sources__/mic-search/js/home-2019/nav_c5fc9765.js.map

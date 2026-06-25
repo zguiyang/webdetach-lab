@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FAW-store</title>
+
+</head>
+<body>
+    <script>
+        (function() {
+            var map = {
+                setItem: function(key, value) { window.localStorage['setItem'](key, value); },
+                getItem: function(key) { return window.localStorage['getItem'](key); },
+                removeItem: function(key) { window.localStorage['removeItem'](key); }
+            };
+
+            window.addEventListener('message', function (e) {
+                try {
+                    var method = e.data['method'];
+                    var key = e.data['key'];
+                    var value = e.data['value'];
+                    var id = e.data['id'];
+
+                    if (!method) return;
+                    // 处理对应的存储方法
+                    var result = map[method](key, value);
+                    // 返回给当前 client 的数据
+                    var response = {
+                        id: id,
+                        result: result,
+                        _tag: 'faw_store'
+                    };
+
+                    // 把获取的数据，发送给 client 窗口
+                    window.parent.postMessage(response, '*')
+                } catch (err) {
+                    if (window['console']) {
+                        console.error(err);
+                    }
+                }
+            })
+        }());
+    </script>
+</body>
+</html>

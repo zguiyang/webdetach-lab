@@ -1,0 +1,22 @@
+{
+  "name": "webdetach-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "site:capture": "tsx .agents/skills/web-detach/scripts/capture-site.ts",
+    "site:serve": "tsx .agents/skills/web-detach/scripts/serve-site.ts",
+    "site:localize-assets": "tsx .agents/skills/web-detach/scripts/localize-assets.ts",
+    "site:localize-images": "tsx .agents/skills/web-detach/scripts/localize-images.ts",
+    "site:audit-capture": "tsx .agents/skills/web-detach/scripts/audit-capture.ts"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "parse5": "^8.0.1"
+  }
+}
