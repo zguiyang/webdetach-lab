@@ -111,6 +111,14 @@ function execTool(cmd: string, label: string): { stdout: string; stderr: string 
 
 function tryParseJsonOutput(s: string): string {
   if (!s) return s;
+  // Strip playwright-cli markdown wrapper:
+  // ### Result
+  // <value>
+  // ### Ran Playwright code
+  const markdownMatch = s.match(/^### Result\n([\s\S]*?)\n### /);
+  if (markdownMatch) {
+    s = markdownMatch[1].trim();
+  }
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     try {
       return JSON.parse(s);
@@ -229,9 +237,9 @@ function browserEvalCmd(tool: string, js: string): string {
 }
 
 function browserScreenshotCmd(tool: string, path: string, fullPage = false): string {
-  const fp = fullPage ? " --full" : "";
+  const fp = fullPage ? (tool === "agent-browser" ? " --full" : " --full-page") : "";
   if (tool === "agent-browser") return `agent-browser screenshot${fp} "${path}"`;
-  return `${playwrightBin()} -s=webdetach screenshot${fp} --filename "${path}"`;
+  return `${playwrightBin()} -s=webdetach screenshot --filename "${path}"${fp}`;
 }
 
 function browserCloseCmd(tool: string): string {
@@ -251,7 +259,7 @@ function browserConsoleCmd(tool: string): string {
 
 function browserScrollCmd(tool: string, px: number): string {
   if (tool === "agent-browser") return `agent-browser scroll down ${px}`;
-  return `${playwrightBin()} -s=webdetach scroll ${px}`;
+  return `${playwrightBin()} -s=webdetach eval "window.scrollBy(0, ${px})"`;
 }
 
 function runBrowserCommands(tool: string, url: string, siteRoot: string): {
@@ -310,9 +318,9 @@ function runBrowserCommands(tool: string, url: string, siteRoot: string): {
   execTool(browserScreenshotCmd(tool, fullPath, true), "screenshot-full");
   console.log("[capture] full-page screenshot saved");
 
-  execTool(`agent-browser scroll down 5000 2>/dev/null || true`, "scroll-1");
-  execTool(`agent-browser scroll down 5000 2>/dev/null || true`, "scroll-2");
-  execTool(`agent-browser scroll down 5000 2>/dev/null || true`, "scroll-3");
+  execTool(browserScrollCmd(tool, 5000), "scroll-1");
+  execTool(browserScrollCmd(tool, 5000), "scroll-2");
+  execTool(browserScrollCmd(tool, 5000), "scroll-3");
   execTool(`agent-browser wait 2000 2>/dev/null || true`, "wait-after-scroll");
   console.log("[capture] scroll done");
 
