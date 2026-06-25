@@ -6,3 +6,5 @@ dist/
 .playwright-cli/
 .agents/archive/
 sites/
+.opencode/
+.trellis/
