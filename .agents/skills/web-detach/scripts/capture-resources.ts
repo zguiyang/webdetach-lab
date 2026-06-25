@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   // Write URL→localPath manifest for the localize phase
   const manifest = captured.map((r) => ({
     url: r.url,
-    localPath: "assets/" + r.path,
+    localPath: r.path,
     contentType: r.contentType,
   }));
   const manifestPath = join(outputDir, "assets", "mirror", "manifest.json");

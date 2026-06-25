@@ -484,11 +484,16 @@ async function rewriteMirrorTextFiles(siteRoot: string, htmlPath: string): Promi
       }
     }
 
-    for (const { from, to } of sorted) {
-      // Skip entries that are protected (nav links in HTML)
-      if (protectedUrls.has(from)) continue;
-
-      const newContent = content.split(from).join(to);
+    // Single-pass regex replacement: match any entry URL at once.
+    // This avoids double-replacement when one entry's TO contains another entry's FROM.
+    const escapedEntries = sorted
+      .filter(({ from }) => !protectedUrls.has(from))
+      .map(({ from }) => from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    if (escapedEntries) {
+      const combinedPattern = new RegExp(escapedEntries, "g");
+      const urlMap = new Map(sorted.filter(e => !protectedUrls.has(e.from)).map(e => [e.from, e.to]));
+      const newContent = content.replace(combinedPattern, (match) => urlMap.get(match) || match);
       if (newContent !== content) {
         content = newContent;
         changed = true;
