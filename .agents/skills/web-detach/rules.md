@@ -58,3 +58,13 @@ MUST NOT 处理：登录、注册、用户数据、Cookie、Token、Authorizatio
 ## 脚本规范
 
 所有持久化脚本使用 TypeScript，通过 `tsx` 执行。禁止 Python 脚本。脚本单一职责、可重复执行、失败时非零退出码。
+
+## 捕获结果汇报
+
+每次 `pnpm site:capture` 执行完成后，在总结捕获结果时，MUST 在末尾输出预览命令：
+
+```
+pnpm site:serve -- <site-name>
+```
+
+如果执行了多次捕获，每个站点都要对应输出一条预览命令。

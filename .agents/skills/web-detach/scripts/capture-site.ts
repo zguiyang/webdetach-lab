@@ -699,6 +699,7 @@ async function main(): Promise<void> {
 
   const sourceBytes = sourceHtml ? sourceHtml.length : 0;
   const entrySource = sourceHtml ? "source.html (pre-JS)" : "rendered.html (fallback)";
+  const previewCommand = `pnpm site:serve -- ${name}`;
   const mdLines = [
     `# Capture Summary`,
     ``,
@@ -751,27 +752,19 @@ async function main(): Promise<void> {
     `## Ready for Localization`,
     readyForLocalization,
     ``,
+    `## Preview`,
+    `- \`${previewCommand}\``,
+    ``,
+    `## Report Location`,
+    `- \`reports/capture-summary.md\``,
   ].join("\n");
   writeFileSync(join(siteRoot, "reports", "capture-summary.md"), mdLines, "utf-8");
 
-  console.log(`\nCaptured ${sourceUrl}`);
-  console.log(`Site directory: sites/${name}`);
-  console.log(`Browser tool: ${tool}`);
-  console.log(`Fallback used: false`);
-  console.log(`Requests: ${reqCount}`);
-  console.log(`  Scripts: ${scriptCount}`);
-  console.log(`  Stylesheets: ${styleCount}`);
-  console.log(`  Images: ${imageCount}`);
-  console.log(`  Fonts: ${fontCount}`);
-  console.log(`  Fetch/XHR: ${fetchXhrCount}`);
-  console.log(`  Failed: ${failedCount}`);
-  console.log(`Console: ${consoleErrors} errors, ${consoleWarnings} warnings`);
-  console.log(`Files: source.html, rendered.html, visible-text.txt, network.json, resources.json, console.json, 3 screenshots`);
-  console.log(`Entry: index.html = ${entrySource}`);
-  console.log(`Gaps: ${gaps.join("; ") || "none"}`);
-  console.log(`Ready for localization: ${readyForLocalization}`);
-  console.log(`API responses saved: ${runtimeManifest.length}`);
-  console.log(`No resources downloaded, no HTML/CSS/JS modified.`);
+  console.log(`\nCaptured: ${sourceUrl}`);
+  console.log(`Site: sites/${name}`);
+  console.log(`Status: ${readyForLocalization} | Requests: ${reqCount} (${failedCount} failed) | Console: ${consoleErrors} err, ${consoleWarnings} warn`);
+  console.log(`Report: reports/capture-summary.md`);
+  console.log(`Preview: ${previewCommand}`);
 }
 
 main().catch((err) => {
