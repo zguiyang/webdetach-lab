@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "node:fs";
-import { join, posix, extname } from "node:path";
+import { join, posix, extname, dirname } from "node:path";
 
 type RequestRecord = {
   url: string;
@@ -26,6 +27,13 @@ type ResourceEntry = {
   discoveredBy: string[];
   loadedAfterScroll: boolean;
   localPath: string | null;
+};
+
+type RuntimeManifestEntry = {
+  requestKey: string;
+  sourceUrl: string;
+  publicPath: string;
+  contentType: string;
 };
 
 type SiteMeta = {
@@ -119,6 +127,43 @@ function isToolAvailable(tool: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+const CACHE_BUST_PARAMS = new Set(["_t", "_", "r", "ts", "timestamp", "cb", "callback"]);
+
+function normalizeApiUrl(urlStr: string): string {
+  const url = new URL(urlStr);
+  const query = new URLSearchParams(url.search);
+  for (const key of [...query.keys()]) {
+    if (CACHE_BUST_PARAMS.has(key)) query.delete(key);
+  }
+  const stable = new URLSearchParams();
+  for (const key of [...query.keys()].sort()) {
+    for (const value of query.getAll(key)) {
+      stable.append(key, value);
+    }
+  }
+  const suffix = stable.toString();
+  return suffix
+    ? `${url.protocol}//${url.host}${url.pathname}?${suffix}`
+    : `${url.protocol}//${url.host}${url.pathname}`;
+}
+
+function downloadUrl(urlStr: string): string | null {
+  try {
+    const out = execSync(
+      `curl -sS -L "${urlStr}" ` +
+      `-H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" ` +
+      `--max-time 15`,
+      { encoding: "utf-8", timeout: 20000, maxBuffer: 10 * 1024 * 1024 },
+    );
+    const text = out.trim();
+    if (!text || text.length < 10) return null;
+    if (text.includes("请验证") || /captcha/i.test(text) || text.includes("Forbidden")) return null;
+    return text;
+  } catch {
+    return null;
   }
 }
 
@@ -545,6 +590,39 @@ async function main(): Promise<void> {
     "utf-8",
   );
 
+  // Capture API response data for fetchXhr resources.
+  // These are used by the inject proxy script at serve time to
+  // provide dynamic data without making runtime cross-origin requests.
+  const apiResources = resources.filter((r) => r.type === "fetchXhr" && r.status === 200);
+  const runtimeManifest: RuntimeManifestEntry[] = [];
+  if (apiResources.length > 0) {
+    mkdirSync(join(siteRoot, "data", "responses"), { recursive: true });
+    console.log(`[capture] Capturing ${apiResources.length} API response(s)...`);
+    for (const res of apiResources) {
+      const data = downloadUrl(res.url);
+      if (data) {
+        const key = normalizeApiUrl(res.url);
+        const hash = createHash("sha1").update(key).digest("hex").slice(0, 16);
+        const publicPath = `./data/responses/api-${hash}.json`;
+        writeFileSync(join(siteRoot, publicPath), data, "utf-8");
+        runtimeManifest.push({
+          requestKey: key,
+          sourceUrl: res.url,
+          publicPath,
+          contentType: "application/json",
+        });
+      }
+    }
+    if (runtimeManifest.length > 0) {
+      writeFileSync(
+        join(siteRoot, "data", "runtime-origin-map.json"),
+        JSON.stringify(runtimeManifest, null, 2) + "\n",
+        "utf-8",
+      );
+      console.log(`[capture] Saved ${runtimeManifest.length} API response(s) to data/runtime-origin-map.json`);
+    }
+  }
+
   const reqCount = requests.length;
   const scriptCount = resources.filter((r) => r.type === "script").length;
   const styleCount = resources.filter((r) => r.type === "stylesheet").length;
@@ -664,6 +742,7 @@ async function main(): Promise<void> {
   console.log(`Entry: index.html = ${entrySource}`);
   console.log(`Gaps: ${gaps.join("; ") || "none"}`);
   console.log(`Ready for localization: ${readyForLocalization}`);
+  console.log(`API responses saved: ${runtimeManifest.length}`);
   console.log(`No resources downloaded, no HTML/CSS/JS modified.`);
 }
 

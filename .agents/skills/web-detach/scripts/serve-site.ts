@@ -269,13 +269,6 @@ function createHandler(siteRoot: string) {
           return;
         }
 
-        // Check for pre-saved API response
-        const savedResponse = findSavedResponse(siteRoot, normalized, rawQuery);
-        if (savedResponse) {
-          serveFile(res, savedResponse, method);
-          return;
-        }
-
         proxyToOrigin(res, `${sourceOrigin}${normalized}${rawQuery ? `?${rawQuery}` : ""}`, req.headers);
         return;
       }
@@ -332,22 +325,11 @@ function serveFile(
   }
 }
 
-function findSavedResponse(siteRoot: string, path: string, query: string): string | null {
-  const base = path.replace(/^\//, "").split("?")[0];
-  if (!base) return null;
-  const params = new URLSearchParams(query);
-  const xcase = params.get("xcase");
-  if (!xcase) return null;
-  const candidate = join(siteRoot, "data", "responses", `${base}--${xcase}.json`);
-  return existsSync(candidate) ? candidate : null;
-}
-
 function proxyToOrigin(
   res: import("node:http").ServerResponse,
   urlStr: string,
   reqHeaders: import("node:http").IncomingHttpHeaders,
 ) {
-  console.log(`[proxy] ${urlStr}`);
   const url = new URL(urlStr);
   const forwardHeaders: Record<string, string> = {};
 
