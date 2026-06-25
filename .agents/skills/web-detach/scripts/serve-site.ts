@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 // ── config ───────────────────────────────────────────────────────────────────
 
-const HOST = "127.0.0.1";
+const HOST = "localhost";
 const DEFAULT_PORT = 4173;
 
 const VALID_SITE_NAME = /^[a-zA-Z0-9_-]+$/;
