@@ -49,6 +49,27 @@ pnpm site:serve -- <site-name>           # 启动本地 HTTP Server
 pnpm typecheck                           # 类型检查
 ```
 
+## AI 编程工具斜杠命令
+
+项目内置了 4 条命令，支持 5 种主流 AI 编程工具。拉下代码后直接在聊天中键入即可：
+
+| 命令 | 功能 | 示例 |
+|------|------|------|
+| `/setup` | 检查环境依赖 | `/setup` |
+| `/capture <url>` | 捕获一个网页 | `/capture https://example.com` |
+| `/serve <site>` | 本地预览站点 | `/serve my-site` |
+| `/audit <site>` | 审计捕获质量 | `/audit my-site` |
+
+各工具调用方式：
+
+| 工具 | 调用方式 | 实现文件 |
+|------|---------|---------|
+| **OpenCode** | 直接键入 `/capture ...` | `.opencode/commands/capture.md` |
+| **Claude Code** | 直接键入 `/capture ...` | `.claude/commands/capture.md` |
+| **Gemini CLI** | 直接键入 `/capture ...` | `.gemini/commands/capture.toml` |
+| **GitHub Copilot** | 键入描述即可触发 | `.github/agents/capture.agent.md` |
+| **Cursor** | 键入 `@capture` 引用规则 | `.cursor/rules/capture.mdc` |
+
 ## 目录结构
 
 ```
