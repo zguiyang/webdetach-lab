@@ -596,12 +596,12 @@ async function main(): Promise<void> {
 
   writeFileSync(join(siteRoot, "capture", "rendered.html"), html, "utf-8");
 
-  // index.html = source.html (pre-JS server response) for correct
-  // framework hydration, avoiding duplicate client-side mounts.
-  // Inject an XHR/fetch proxy to redirect host-relative API URLs
-  // to the local server (protocol-relative URLs like //host/api
-  // become cross-origin when served from localhost).
-  if (sourceHtml) {
+  // index.html: offline mode uses rendered.html (includes dynamically-loaded
+  // CSS/JS and full rendered DOM); online mode uses source.html with proxy script.
+  if (mode === "offline") {
+    writeFileSync(join(siteRoot, "index.html"), html, "utf-8");
+    console.log(`[capture] index.html = rendered.html (${html.length} bytes, offline mode)`);
+  } else if (sourceHtml) {
     const originHost = new URL(sourceUrl).host;
     const proxyScript = makeApiProxyScript(originHost);
     const patched = sourceHtml.includes("<head>")

@@ -3,11 +3,13 @@ import type { DefaultTreeAdapterMap } from "parse5";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
+  statSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, extname, join, posix } from "node:path";
+import { dirname, extname, join, posix, relative } from "node:path";
 
 type Document = DefaultTreeAdapterMap["document"];
 type Element = DefaultTreeAdapterMap["element"];
@@ -414,6 +416,82 @@ async function mirrorRuntimeResponse(siteRoot: string, url: string): Promise<Run
   };
 }
 
+async function rewriteMirrorCssUrls(siteRoot: string): Promise<void> {
+  const mirrorDir = join(siteRoot, "assets", "mirror");
+  if (!existsSync(mirrorDir)) return;
+
+  const cssFiles: string[] = [];
+  function walk(dir: string): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".css")) cssFiles.push(full);
+    }
+  }
+  walk(mirrorDir);
+
+  if (cssFiles.length === 0) {
+    console.log("  No CSS files to rewrite in mirror");
+    return;
+  }
+
+  const urlPattern = /url\((['"]?)([^)'"]+)\1\)/g;
+  let totalRewrites = 0;
+
+  for (const cssPath of cssFiles) {
+    // Derive the CSS file's origin URL from its mirror path:
+    // assets/mirror/<protocol>/<host>/<rest...>
+    const relPath = relative(siteRoot, cssPath); // assets/mirror/https/host/path/file.css
+    const segments = relPath.split("/"); // ["assets","mirror","https","host",...]
+    if (segments.length < 4 || segments[0] !== "assets" || segments[1] !== "mirror") continue;
+    const protocol = segments[2]; // "https"
+    const host = segments[3];
+    const defaultOrigin = `${protocol}://${host}/`;
+
+    const css = readFileSync(cssPath, "utf-8");
+    let rewritten = css;
+    const replacements = new Map<string, string>();
+
+    for (const match of css.matchAll(urlPattern)) {
+      const raw = match[2];
+      if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) continue;
+
+      let resolved: string | null = null;
+      try {
+        if (raw.startsWith("//")) {
+          resolved = `https:${raw}`;
+        } else if (raw.startsWith("http://") || raw.startsWith("https://")) {
+          resolved = raw;
+        } else if (raw.startsWith("/")) {
+          resolved = `${protocol}://${host}${raw}`;
+        } else {
+          resolved = new URL(raw, defaultOrigin).toString();
+        }
+      } catch {
+        continue;
+      }
+
+      if (!resolved) continue;
+      const localPath = resolveToLocalPath(siteRoot, resolved);
+      if (localPath) {
+        // The resolved URL has a mirror copy → replace with relative path
+        replacements.set(raw, localPath);
+      }
+    }
+
+    if (replacements.size > 0) {
+      for (const [from, to] of replacements) {
+        rewritten = rewritten.split(from).join(to);
+      }
+      writeFileSync(cssPath, rewritten, "utf-8");
+      totalRewrites += replacements.size;
+      console.log(`  CSS: ${relative(siteRoot, cssPath)} → ${replacements.size} URL(s) rewritten`);
+    }
+  }
+
+  console.log(`  Total CSS URL rewrites: ${totalRewrites}`);
+}
+
 async function main(): Promise<void> {
   const { siteName } = parseArgs(process.argv.slice(2));
   if (!siteName || process.exitCode) {
@@ -595,6 +673,13 @@ async function main(): Promise<void> {
   }
 
   writeFileSync(htmlPath, rewrittenHtml, "utf-8");
+
+  // Offline mode: rewrite CSS url() references from CDN URLs to local mirror paths.
+  // CSS files captured by CDP still contain @font-face url(https://cdn/...font.woff2)
+  // and background-image url(//cdn/...img.png) pointing to CDN hosts.
+  if (isOffline) {
+    await rewriteMirrorCssUrls(siteRoot);
+  }
 
   if (!isOffline) {
     const runtimeEntries = networkData.requests.filter(
