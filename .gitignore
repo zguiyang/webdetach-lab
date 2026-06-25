@@ -5,3 +5,4 @@ dist/
 .webdetach/
 .playwright-cli/
 .agents/archive/
+sites/
