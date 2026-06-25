@@ -232,7 +232,12 @@ if (!siteName || process.exitCode) {
     console.log(`Found ${imageRecords.length} image references`);
 
     // Resolve URLs and collect unique
-    const baseUrl = "https://www.made-in-china.com/";
+    const webdetachPath = join(siteRoot, "webdetach.json");
+    let baseUrl = "https://www.made-in-china.com/";
+    if (existsSync(webdetachPath)) {
+      const config = JSON.parse(readFileSync(webdetachPath, "utf-8")) as { sourceUrl?: string; mode?: string };
+      if (config.sourceUrl) baseUrl = config.sourceUrl;
+    }
     const urlSet = new Set<string>();
 
     for (const rec of imageRecords) {

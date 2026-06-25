@@ -62,17 +62,21 @@ type SiteMeta = {
 const VIEWPORT_W = 1440;
 const VIEWPORT_H = 1000;
 
-function parseArgs(argv: string[]): { url: string | null } {
+function parseArgs(argv: string[]): { url: string | null; mode: string } {
   let url: string | null = null;
-  for (const arg of argv) {
-    if (arg.startsWith("--")) continue;
-    if (url === null) url = arg;
+  let mode = "online";
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--mode" && i + 1 < argv.length) {
+      mode = argv[++i];
+    } else if (!argv[i].startsWith("--") && url === null) {
+      url = argv[i];
+    }
   }
   if (!url) {
-    console.error("Usage: pnpm site:capture -- <url>");
+    console.error("Usage: pnpm site:capture -- <url> [--mode <online|offline>]");
     process.exitCode = 1;
   }
-  return { url };
+  return { url, mode };
 }
 
 function sanitize(s: string): string {
@@ -98,9 +102,9 @@ function createDirLayout(root: string): void {
   mkdirSync(join(root, "reports"), { recursive: true });
 }
 
-function execTool(cmd: string, label: string): { stdout: string; stderr: string } {
+function execTool(cmd: string, label: string, maxMB = 10): { stdout: string; stderr: string } {
   try {
-    const out = execSync(cmd, { encoding: "utf-8", timeout: 60000, maxBuffer: 10 * 1024 * 1024 });
+    const out = execSync(cmd, { encoding: "utf-8", timeout: 60000, maxBuffer: maxMB * 1024 * 1024 });
     return { stdout: out.trim(), stderr: "" };
   } catch (e: any) {
     const stderr = e.stderr?.toString().trim() || "";
@@ -262,7 +266,7 @@ function browserScrollCmd(tool: string, px: number): string {
   return `${playwrightBin()} -s=webdetach eval "window.scrollBy(0, ${px})"`;
 }
 
-function runBrowserCommands(tool: string, url: string, siteRoot: string): {
+function runBrowserCommands(tool: string, url: string, siteRoot: string, mode = "online", projectRoot = ""): {
   html: string;
   visibleText: string;
   requestsRaw: string;
@@ -275,28 +279,39 @@ function runBrowserCommands(tool: string, url: string, siteRoot: string): {
   const fullPath = join(siteRoot, "capture", "screenshots", "full-page.png");
   const afterScrollPath = join(siteRoot, "capture", "screenshots", "after-scroll.png");
 
-  const commands = [
-    ...(tool === "agent-browser"
-      ? [`agent-browser network har start 2>/dev/null; true`]
-      : []),
+  const pw = () => playwrightBin();
+  const session = "-s=webdetach";
+  const openArgs = `--headed --persistent --profile=.webdetach/browser-profile`;
+
+  // Open browser to target URL (same for both modes)
+  const openCmds = [
+    ...(tool === "agent-browser" ? [`agent-browser network har start 2>/dev/null; true`] : []),
     browserOpenCmd(tool, url),
     `agent-browser set viewport ${VIEWPORT_W} ${VIEWPORT_H} 2>/dev/null; true`,
     `agent-browser wait --load load 2>/dev/null || true`,
     `agent-browser wait --load networkidle 2>/dev/null || true`,
     `agent-browser wait 2000 2>/dev/null || true`,
   ];
-
   if (tool === "agent-browser") {
-    commands.push(
+    openCmds.push(
       `agent-browser set viewport ${VIEWPORT_W} ${VIEWPORT_H} 2>/dev/null; true`,
       `agent-browser wait --load load 2>/dev/null || true`,
       `agent-browser wait --load networkidle 2>/dev/null || true`,
       `agent-browser wait 2000 2>/dev/null || true`,
     );
   }
+  execTool(openCmds.join(" && "), "open");
 
-  const chain = commands.join(" && ");
-  execTool(chain, "open");
+  // Offline mode: capture resources via standalone script (direct Node.js, no sandbox)
+  if (mode === "offline" && tool !== "agent-browser") {
+    const captureScript = join(projectRoot, ".agents/skills/web-detach/scripts/capture-resources.ts");
+    const captureResult = execTool(
+      `tsx "${captureScript}" --output-dir "${siteRoot}" --url "${url}"`,
+      "capture-resources",
+      10,
+    );
+    console.log(`[capture] Offline: ${captureResult.stdout}`);
+  }
 
   const title = execTool(
     tool === "agent-browser" ? `agent-browser get title` : `${playwrightBin()} -s=webdetach eval "document.title"`,
@@ -484,7 +499,7 @@ function makeApiProxyScript(host: string): string {
 }
 
 async function main(): Promise<void> {
-  const { url } = parseArgs(process.argv.slice(2));
+  const { url, mode } = parseArgs(process.argv.slice(2));
   if (!url || process.exitCode) { process.exitCode = 1; return; }
 
   const sourceUrl = new URL(url).toString();
@@ -544,7 +559,7 @@ async function main(): Promise<void> {
   let captureFailed = false;
 
   try {
-    const result = runBrowserCommands(tool, sourceUrl, siteRoot);
+    const result = runBrowserCommands(tool, sourceUrl, siteRoot, mode, projectRoot);
     html = result.html;
     visibleText = result.visibleText;
     requestsRaw = result.requestsRaw;
@@ -554,10 +569,24 @@ async function main(): Promise<void> {
     captureFailed = true;
   }
 
+  // Write webdetach.json config (user-facing, scripts read-only) for offline mode
+  if (mode === "offline") {
+    const webdetachConfig = {
+      sourceUrl,
+      mode: "offline",
+    };
+    writeFileSync(
+      join(siteRoot, "webdetach.json"),
+      JSON.stringify(webdetachConfig, null, 2) + "\n",
+      "utf-8",
+    );
+    console.log(`[capture] Offline mode config written: webdetach.json`);
+  }
+
   if (!html) {
     meta.status = "FAILED";
     meta.capturedAt = capturedAt;
-    writeFileSync(join(siteRoot, "site.json"), JSON.stringify(meta, null, 2) + "\n", "utf-8");
+  writeFileSync(join(siteRoot, "site.json"), JSON.stringify(meta, null, 2) + "\n", "utf-8");
     process.exitCode = 1;
     return;
   }

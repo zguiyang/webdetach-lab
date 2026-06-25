@@ -104,6 +104,32 @@ function sha(text: string, len = 10): string {
   return createHash("sha1").update(text).digest("hex").slice(0, len);
 }
 
+function resolveToLocalPath(siteRoot: string, url: string): string | null {
+  // Build the same path as capture-resources.js uses:
+  // assets/mirror/<protocol>/<host>/<path>
+  try {
+    const parsed = new URL(url);
+    const protocol = parsed.protocol.replace(":", "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    let filename = segments.pop() || "index";
+    const ext = extname(filename);
+    if (!ext) filename += ".bin";
+    if (parsed.search) {
+      const nameExt = extname(filename);
+      const base = nameExt ? filename.slice(0, -nameExt.length) : filename;
+      filename = `${base}__${sha(parsed.search)}${nameExt || ".bin"}`;
+    }
+    const relPath = posix.join("assets", "mirror", protocol, parsed.host, ...segments, filename);
+    const diskPath = join(siteRoot, relPath);
+    if (existsSync(diskPath)) {
+      return `./${relPath}`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeSegment(segment: string): string {
   return segment.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -392,10 +418,22 @@ async function main(): Promise<void> {
   const projectRoot = process.cwd();
   const siteRoot = join(projectRoot, "sites", siteName);
   const htmlPath = join(siteRoot, "index.html");
-  const networkPath = join(siteRoot, "capture", "network.json");
 
-  if (!existsSync(htmlPath) || !existsSync(networkPath)) {
-    console.error("Missing site files. Expected index.html and capture/network.json.");
+  if (!existsSync(htmlPath)) {
+    console.error("Missing index.html in site directory.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Detect mode from webdetach.json
+  const webdetachPath = join(siteRoot, "webdetach.json");
+  const isOffline = existsSync(webdetachPath)
+    ? (JSON.parse(readFileSync(webdetachPath, "utf-8")) as { mode?: string }).mode === "offline"
+    : false;
+
+  const networkPath = join(siteRoot, "capture", "network.json");
+  if (!isOffline && !existsSync(networkPath)) {
+    console.error("Missing capture/network.json. Run capture first.");
     process.exitCode = 1;
     return;
   }
@@ -403,17 +441,30 @@ async function main(): Promise<void> {
   const html = readFileSync(htmlPath, "utf-8");
   const doc = parse(html, { sourceCodeLocationInfo: true }) as Document;
   const refs = extractAssetRefs(doc, html);
-  const networkData = JSON.parse(readFileSync(networkPath, "utf-8")) as { requests: NetworkEntry[] };
-  const runtimeHosts = new Set(
-    networkData.requests
-      .filter((entry) => ["fetch", "xhr"].includes(entry.resourceType) && entry.status === 200)
-      .map((entry) => new URL(entry.url).host),
-  );
+
+  let baseUrl: string;
+  let runtimeHosts = new Set<string>();
+  let networkData: { requests: NetworkEntry[] } = { requests: [] };
+
+  if (isOffline) {
+    const config = JSON.parse(readFileSync(webdetachPath, "utf-8")) as { sourceUrl: string };
+    baseUrl = config.sourceUrl || "https://unknown/";
+  } else {
+    baseUrl = "https://www.made-in-china.com/";
+    networkData = JSON.parse(readFileSync(networkPath, "utf-8")) as { requests: NetworkEntry[] };
+    runtimeHosts = new Set(
+      networkData.requests
+        .filter((entry) => ["fetch", "xhr"].includes(entry.resourceType) && entry.status === 200)
+        .map((entry) => new URL(entry.url).host),
+    );
+  }
 
   const patches: Patch[] = [];
-  const baseUrl = "https://www.made-in-china.com/";
 
   for (const ref of refs) {
+    // Skip font references (browser fallback to system fonts, avoid copyright risk)
+    if (ref.kind === "font") continue;
+
     if (ref.attrName === "srcset" || ref.attrName === "data-srcset") {
       const parts = ref.originalValue.split(",");
       const rebuilt: string[] = [];
@@ -427,12 +478,22 @@ async function main(): Promise<void> {
         rebuilt.push(part.trim());
         continue;
       }
-      try {
-        const mirrored = await mirrorStaticAsset(siteRoot, resolved, runtimeHosts);
-        rebuilt.push([mirrored.publicPath, ...tokens.slice(1)].join(" "));
-        changed = true;
-      } catch {
-        rebuilt.push(part.trim());
+      if (isOffline) {
+        const localPath = resolveToLocalPath(siteRoot, resolved);
+        if (localPath) {
+          rebuilt.push([localPath, ...tokens.slice(1)].join(" "));
+          changed = true;
+        } else {
+          rebuilt.push(part.trim());
+        }
+      } else {
+        try {
+          const mirrored = await mirrorStaticAsset(siteRoot, resolved, runtimeHosts);
+          rebuilt.push([mirrored.publicPath, ...tokens.slice(1)].join(" "));
+          changed = true;
+        } catch {
+          rebuilt.push(part.trim());
+        }
       }
       }
       if (changed) {
@@ -457,15 +518,26 @@ async function main(): Promise<void> {
       continue;
     }
 
-    try {
-      const mirrored = await mirrorStaticAsset(siteRoot, resolved, runtimeHosts);
-      patches.push({
-        offset: ref.offsets.start,
-        length: ref.offsets.end - ref.offsets.start,
-        replacement: mirrored.publicPath,
-      });
-    } catch {
-      continue;
+    if (isOffline) {
+      const localPath = resolveToLocalPath(siteRoot, resolved);
+      if (localPath) {
+        patches.push({
+          offset: ref.offsets.start,
+          length: ref.offsets.end - ref.offsets.start,
+          replacement: localPath,
+        });
+      }
+    } else {
+      try {
+        const mirrored = await mirrorStaticAsset(siteRoot, resolved, runtimeHosts);
+        patches.push({
+          offset: ref.offsets.start,
+          length: ref.offsets.end - ref.offsets.start,
+          replacement: mirrored.publicPath,
+        });
+      } catch {
+        continue;
+      }
     }
   }
 
@@ -477,38 +549,44 @@ async function main(): Promise<void> {
       patch.replacement +
       rewrittenHtml.slice(patch.offset + patch.length);
   }
-  rewrittenHtml = rewrittenHtml.replace(
-    /<base\s+href="\/\/www\.made-in-china\.com"\s+target="_top">/i,
-    '<base href="/" target="_self">',
-  );
+
+  if (!isOffline) {
+    rewrittenHtml = rewrittenHtml.replace(
+      /<base\s+href="\/\/www\.made-in-china\.com"\s+target="_top">/i,
+      '<base href="/" target="_self">',
+    );
+  }
   writeFileSync(htmlPath, rewrittenHtml, "utf-8");
 
-  const runtimeEntries = networkData.requests.filter(
-    (entry) =>
-      ["fetch", "xhr"].includes(entry.resourceType) &&
-      entry.method.toUpperCase() === "GET" &&
-      entry.status === 200,
-  );
-  const manifest: RuntimeManifestEntry[] = [];
-  for (const entry of runtimeEntries) {
-    try {
-      manifest.push(await mirrorRuntimeResponse(siteRoot, entry.url));
-    } catch (error) {
-      console.warn(`Failed runtime mirror: ${entry.url} (${error instanceof Error ? error.message : String(error)})`);
+  if (!isOffline) {
+    const runtimeEntries = networkData.requests.filter(
+      (entry) =>
+        ["fetch", "xhr"].includes(entry.resourceType) &&
+        entry.method.toUpperCase() === "GET" &&
+        entry.status === 200,
+    );
+    const manifest: RuntimeManifestEntry[] = [];
+    for (const entry of runtimeEntries) {
+      try {
+        manifest.push(await mirrorRuntimeResponse(siteRoot, entry.url));
+      } catch (error) {
+        console.warn(`Failed runtime mirror: ${entry.url} (${error instanceof Error ? error.message : String(error)})`);
+      }
     }
-  }
 
-  writeFileSync(
-    join(siteRoot, "data", "runtime-origin-map.json"),
-    JSON.stringify(manifest, null, 2),
-    "utf-8",
-  );
+    writeFileSync(
+      join(siteRoot, "data", "runtime-origin-map.json"),
+      JSON.stringify(manifest, null, 2),
+      "utf-8",
+    );
+  }
 
   const report = {
     assetReferencesPatched: patches.length,
-    mirroredAssets: mirroredAssets.size,
-    runtimeResponses: manifest.length,
+    mirroredAssets: isOffline ? 0 : mirroredAssets.size,
+    runtimeResponses: isOffline ? 0 : 0,
     runtimeHosts: [...runtimeHosts],
+    mode: isOffline ? "offline" : "online",
   };
   writeFileSync(
     join(siteRoot, "reports", "asset-localization.json"),
@@ -516,10 +594,11 @@ async function main(): Promise<void> {
     "utf-8",
   );
 
-  console.log(`Localized assets for ${siteName}`);
+  console.log(`Localized assets for ${siteName} (mode: ${isOffline ? "offline" : "online"})`);
   console.log(`  HTML patches: ${patches.length}`);
-  console.log(`  Mirrored static assets: ${mirroredAssets.size}`);
-  console.log(`  Mirrored runtime responses: ${manifest.length}`);
+  if (!isOffline) {
+    console.log(`  Mirrored static assets: ${mirroredAssets.size}`);
+  }
 }
 
 main().catch((error) => {

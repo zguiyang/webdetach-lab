@@ -57,9 +57,10 @@ interface SiteMeta {
 
 // ── args ─────────────────────────────────────────────────────────────────────
 
-function parseArgs(raw: string[]): { siteName: string | null; port: number } {
+function parseArgs(raw: string[]): { siteName: string | null; port: number; offline: boolean } {
   let siteName: string | null = null;
   let port = DEFAULT_PORT;
+  let offline = false;
 
   for (let i = 0; i < raw.length; i++) {
     const arg = raw[i];
@@ -70,19 +71,21 @@ function parseArgs(raw: string[]): { siteName: string | null; port: number } {
       } else {
         console.error(`Invalid port: ${raw[i]}. Must be 0-65535.`);
         process.exitCode = 1;
-        return { siteName: null, port };
+        return { siteName: null, port, offline };
       }
+    } else if (arg === "--offline") {
+      offline = true;
     } else if (!arg.startsWith("--") && siteName === null) {
       siteName = arg;
     }
   }
 
   if (siteName === null) {
-    console.error("Usage: pnpm site:serve -- <site-name> [--port <port>]");
+    console.error("Usage: pnpm site:serve -- <site-name> [--port <port>] [--offline]");
     process.exitCode = 1;
   }
 
-  return { siteName, port };
+  return { siteName, port, offline };
 }
 
 // ── paths ────────────────────────────────────────────────────────────────────
@@ -172,9 +175,9 @@ function normalizeRuntimeKeyFromRequest(originPath: string, queryString: string)
 
 // ── handler ──────────────────────────────────────────────────────────────────
 
-function createHandler(siteRoot: string) {
+function createHandler(siteRoot: string, offline = false) {
   const runtimeMapPath = join(siteRoot, "data", "runtime-origin-map.json");
-  const runtimeMap = existsSync(runtimeMapPath)
+  const runtimeMap = !offline && existsSync(runtimeMapPath)
     ? (JSON.parse(readFileSync(runtimeMapPath, "utf-8")) as RuntimeOriginMapEntry[])
     : [];
   const runtimeLookup = new Map(runtimeMap.map((entry) => [entry.requestKey, entry]));
@@ -182,7 +185,7 @@ function createHandler(siteRoot: string) {
   const siteMeta = existsSync(siteMetaPath)
     ? (JSON.parse(readFileSync(siteMetaPath, "utf-8")) as SiteMeta)
     : null;
-  const sourceOrigin = siteMeta?.sourceUrl ? new URL(siteMeta.sourceUrl).origin : null;
+  const sourceOrigin = !offline && siteMeta?.sourceUrl ? new URL(siteMeta.sourceUrl).origin : null;
 
   return (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
     const method = req.method?.toUpperCase() ?? "GET";
@@ -196,6 +199,15 @@ function createHandler(siteRoot: string) {
     const [rawPath, rawQuery = ""] = (req.url ?? "/").split("?");
     const decoded = decodeURIComponent(rawPath);
     let normalized = normalize(decoded).replace(/\\/g, "/");
+
+    // Offline mode: no /__origin__/ routing, no proxy fallback
+    if (offline) {
+      if (normalized.startsWith("/__origin__/")) {
+        res.writeHead(404).end();
+        return;
+      }
+      return serveLocal(res, siteRoot, normalized, method);
+    }
 
     if (normalized.startsWith("/__origin__/")) {
       const match = normalized.match(/^\/__origin__\/(https|http)\/([^/]+)(\/.*)$/);
@@ -300,6 +312,51 @@ function createHandler(siteRoot: string) {
   };
 }
 
+function serveLocal(
+  res: import("node:http").ServerResponse,
+  siteRoot: string,
+  normalized: string,
+  method: string,
+): void {
+  let path = normalized;
+  if (path === "/" || path === "" || path === ".") {
+    path = "/index.html";
+  } else if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+
+  if (!isPathSafe(siteRoot, path)) {
+    res.writeHead(403).end();
+    return;
+  }
+
+  const filePath = join(siteRoot, path);
+  if (!existsSync(filePath)) {
+    res.writeHead(404).end();
+    return;
+  }
+
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(filePath);
+  } catch {
+    res.writeHead(404).end();
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    const indexPath = join(filePath, "index.html");
+    if (existsSync(indexPath)) {
+      serveFile(res, indexPath, method);
+    } else {
+      res.writeHead(404).end();
+    }
+    return;
+  }
+
+  serveFile(res, filePath, method);
+}
+
 function serveFile(
   res: import("node:http").ServerResponse,
   filePath: string,
@@ -360,7 +417,7 @@ function proxyToOrigin(
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-const { siteName, port } = parseArgs(process.argv.slice(2));
+const { siteName, port, offline } = parseArgs(process.argv.slice(2));
 
 if (siteName === null || process.exitCode === 1) {
   // parseArgs already set exitCode and printed message
@@ -382,7 +439,7 @@ if (siteName === null || process.exitCode === 1) {
     console.error(`Expected: ${join(siteRoot, "index.html")}`);
     process.exitCode = 1;
   } else {
-    const handler = createHandler(siteRoot);
+    const handler = createHandler(siteRoot, offline);
     const server = createServer(handler);
 
     server.listen(port, HOST, () => {
@@ -391,6 +448,7 @@ if (siteName === null || process.exitCode === 1) {
         console.log("WebDetach local site server\n");
         console.log(`Site: ${siteName}`);
         console.log(`Root: ${siteRoot}`);
+        console.log(`Mode: ${offline ? "offline (no proxy fallback)" : "online (with proxy fallback)"}`);
         console.log(`URL:  http://${HOST}:${addr.port}`);
       }
     });

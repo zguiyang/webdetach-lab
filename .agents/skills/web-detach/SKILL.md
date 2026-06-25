@@ -8,7 +8,8 @@
 
 ## 浏览器工具
 
-- **唯一工具**：`playwright-cli`（项目依赖 `@playwright/cli`，通过 `pnpm install` 安装）
+- **主要工具**：`playwright-cli`（项目依赖 `@playwright/cli`，通过 `pnpm install` 安装），负责页面交互、截图、DOM 捕获
+- **资源捕获**：通过 Playwright `run-code`（`page.on('response')`）在浏览器会话内完成，零额外请求捕获所有响应体
 - **默认模式**：自动启动本地 headed Chrome + 专用持久化 Profile
 - **Session**：固定使用 `webdetach`
 - **Profile**：`.webdetach/browser-profile`（项目专用，不提交 Git）
@@ -126,6 +127,57 @@ CSS、字体、JS 和接口响应留在后续阶段处理。
 ### 阶段 5：断联测试（Offline Test）
 
 屏蔽原站域名，验证页面独立运行。
+
+---
+
+## 离线模式（Offline Mode）
+
+通过 `--mode offline` 参数开启，区别于 online 模式的完整离线化流程：
+
+### 配置
+
+```bash
+pnpm site:capture -- <url> --mode offline
+```
+
+目录产物新增 `webdetach.json`：
+```json
+{
+  "sourceUrl": "https://example.com",
+  "mode": "offline"
+}
+```
+
+### 捕获阶段差异
+
+1. 浏览器打开页面后，通过 `playwright-cli run-code` 执行资源捕获脚本
+2. 脚本中 `page.on('response')` 监听每个响应，保存到 `assets/mirror/<protocol>/<host>/<path>`
+3. **零额外请求**：不主动 fetch，只捕获页面正常加载过程中的响应
+4. 所有静态资源（HTML/CSS/JS/图片/SVG）存盘后继续截图和 DOM 捕获
+
+### 本地化阶段差异
+
+1. `localize-assets.ts` 读取 `webdetach.json` 判断 mode
+2. `offline` 模式跳过网络下载，直接从 `assets/mirror/` 检查文件存在
+3. 使用 parse5 精准替换静态资源属性为相对路径 `./assets/mirror/...`
+4. 字体引用不替换，浏览器自然 fallback 系统字体（版权规避）
+5. 不处理 runtime XHR/Fetch 响应和 JS 域名重写
+
+### Server 阶段差异
+
+```bash
+pnpm site:serve -- <site> --offline
+```
+
+- 禁止任何代理回退到原站
+- 移除 `/__origin__/` 运行时路由
+- 文件不存在直接 404
+
+### 访问方式
+
+同一份 `index.html` 支持：
+- 双击 `index.html`（`file://`）：图片/CSS/JS 正常加载（字体系统 fallback）
+- `pnpm site:serve -- <site>`：所有功能完整
 
 ---
 

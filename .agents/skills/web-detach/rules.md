@@ -8,7 +8,7 @@
 
 ## 浏览器工具
 
-唯一使用 `playwright-cli`（项目依赖 `@playwright/cli`）。默认通过 `./node_modules/.bin/playwright-cli -s=webdetach open` 启动本地 headed Chrome，使用专用持久化 Profile `.webdetach/browser-profile`。固定 Session `webdetach`。禁止使用 agent-browser、无头浏览器或其他浏览器工具。
+主要自动化工具为 `playwright-cli`（项目依赖 `@playwright/cli`），负责页面交互、截图和 DOM 捕获。资源捕获通过 Playwright `run-code` 在浏览器会话内完成（利用 CDP `page.on('response')` 零额外请求捕获响应体）。默认通过 `./node_modules/.bin/playwright-cli -s=webdetach open` 启动本地 headed Chrome，使用专用持久化 Profile `.webdetach/browser-profile`。固定 Session `webdetach`。禁止使用 agent-browser、无头浏览器或其他浏览器工具。
 
 ## Profile
 
@@ -42,6 +42,17 @@ MUST NOT 处理：登录、注册、用户数据、Cookie、Token、Authorizatio
 **禁止**：删除 `<base>`、重写 DOM、格式化 HTML、修改内联脚本/样式、将导航链接当静态资源替换。
 
 **验证**：每完成一个资源类别本地化，MUST 启动页面并与基准截图对比。视觉回归时 MUST 恢复上一版本。
+
+## 离线模式（Offline Mode）
+
+通过 `webdetach.json` 配置文件声明模式。`capture-site.ts --mode offline` 时：
+
+- **资源捕获**：使用独立 TypeScript 脚本 `capture-resources.ts`（通过 `playwright-core` 启动 headless Chrome），在页面加载时通过 `page.on('response')` 捕获所有响应体并直接写入磁盘，零额外请求
+- **存储结构**：`assets/mirror/<protocol>/<host>/<path>`，保留原始 URL 路径
+- **HTML 路径替换**：parse5 精准替换静态资源引用为相对路径 `./assets/mirror/...`，兼容 `file://`
+- **字体策略**：CDP 阶段捕获到本地但不替换 HTML 引用，浏览器自动 fallback 系统字体
+- **Server 行为**：`serve --offline` 模式下禁止任何代理回退到原站，文件 404 直接返回
+- **输出物**：同一份 `index.html` 同时支持 `file://` 双击和 HTTP Server 访问
 
 **脚本**：持久化本地化脚本 MUST 使用 TypeScript。禁止使用临时 Python/Bash 脚本修改正式页面。
 

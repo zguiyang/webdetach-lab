@@ -19,6 +19,7 @@
   "devDependencies": {
     "@playwright/cli": "0.1.14",
     "@types/node": "latest",
+    "playwright-core": "^1.61.1",
     "tsx": "latest",
     "typescript": "latest"
   },

@@ -12,7 +12,7 @@
 - 修复已有页面时采用增量修改，不重写整个页面。
 - 每个复刻网站存放在 `sites/<site-name>/` 独立目录。
 - Skill 负责流程编排，具体操作优先交给现有工具完成。
-- 唯一浏览器自动化工具为 `playwright-cli`，默认启动本地 headed Chrome，使用项目专用 Profile。
+- 浏览器自动化使用 `playwright-cli`（页面交互/截图/DOM 捕获）；资源捕获通过 Playwright `run-code` 在浏览器会话内完成。默认启动本地 headed Chrome，使用项目专用 Profile。
 
 ---
 

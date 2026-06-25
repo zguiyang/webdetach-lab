@@ -18,6 +18,9 @@ importers:
       '@types/node':
         specifier: latest
         version: 26.0.0
+      playwright-core:
+        specifier: ^1.61.1
+        version: 1.61.1
       tsx:
         specifier: latest
         version: 4.22.4
@@ -218,6 +221,11 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  playwright-core@1.61.1:
+    resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   playwright@1.61.0-alpha-1781023400000:
     resolution: {integrity: sha512-8TRUG3IvwaAhuVm6k3C5vB7CwC5Fxq76DCCxOgPr6r1dpTedDwxlmdOBUkSZ0zxfxP14jcuPxi86/Trq4eA03w==}
     engines: {node: '>=18'}
@@ -367,6 +375,8 @@ snapshots:
       entities: 8.0.0
 
   playwright-core@1.61.0-alpha-1781023400000: {}
+
+  playwright-core@1.61.1: {}
 
   playwright@1.61.0-alpha-1781023400000:
     dependencies:
