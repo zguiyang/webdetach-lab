@@ -1,0 +1,7 @@
+---
+description: 检查项目环境依赖是否完整
+globs: []
+alwaysApply: false
+---
+
+用户想检查环境。执行 `pnpm setup` 并逐项解读结果。有 FAIL 项时给出具体修复命令，全部通过时提示可以开始捕获。

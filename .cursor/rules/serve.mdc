@@ -1,0 +1,12 @@
+---
+description: 本地预览已复刻的网站
+globs: []
+alwaysApply: false
+---
+
+用户想要预览一个已捕获的站点：
+
+1. 执行 `ls sites/` 列出所有站点
+2. 如未指定站点名，提示用户从列表中选择
+3. 执行 `pnpm site:serve -- <site-name>`
+4. 告知用户访问地址（默认 http://localhost:4173）

@@ -1,0 +1,5 @@
+description = "审计捕获质量"
+prompt = """
+执行 pnpm site:audit-capture -- "{{args}}"，同时检查捕获目录中 network.json 和 console.json 是否为空。
+输出审计结论：PASS / WARN / FAIL。
+"""

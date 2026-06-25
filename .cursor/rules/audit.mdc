@@ -1,0 +1,11 @@
+---
+description: 审计捕获质量
+globs: []
+alwaysApply: false
+---
+
+用户想审计一个站点的捕获质量：
+
+1. 执行 `pnpm site:audit-capture -- <site-name>`
+2. 检查 `sites/<site-name>/capture/network.json` 和 `console.json` 是否为空
+3. 输出 PASS / WARN / FAIL 结论

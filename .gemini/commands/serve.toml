@@ -1,0 +1,6 @@
+description = "本地预览已复刻的网站"
+prompt = """
+先执行 ls sites/ 列出所有站点。如果 {{args}} 为空则让用户选择，否则执行：
+pnpm site:serve -- "{{args}}"
+告知用户访问地址和验证方式。
+"""
