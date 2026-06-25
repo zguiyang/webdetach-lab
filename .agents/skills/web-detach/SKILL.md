@@ -82,6 +82,17 @@ pnpm exec playwright-cli attach --cdp=chrome -s=webdetach
 9. 更新 `site.json` 统计与状态
 10. 生成 `reports/capture-summary.md`
 
+### 阶段 2（续）：捕获后验证与结果报告
+
+1. 从 `site.json` 的 `name` 字段获取站点名称
+2. 后台启动 `pnpm site:serve -- <site-name>`，监听 `127.0.0.1:4173`
+3. 验证页面可访问：
+   - **首选**：`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4173`，返回 `200` 则通过
+   - **回退**：直接读取 `sites/<site-name>/index.html`，确认包含 `<html>` 或 `<!DOCTYPE` 标记（有效 HTML）则通过
+4. 验证通过 → **仅输出**"通过"，不附加任何说明文字
+5. 停止本地预览服务
+6. 输出用户预览命令：`pnpm site:serve -- <site-name>`
+
 ### 阶段 3：本地化（Localize）
 
 **基线保护**：`capture/rendered.html` 是不可修改的视觉基准。`index.html` MUST 先通过字节级复制生成，再增量修改资源引用。
